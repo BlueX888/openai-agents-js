@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import {
   Agent,
   ModelRefusalError,
   Runner,
   setTracingDisabled,
+  tool,
   withTrace,
 } from '@openai/agents-core';
 import * as AgentsCore from '@openai/agents-core';
@@ -148,6 +150,75 @@ describe('OpenAIChatCompletionsModel streaming scenarios', () => {
       inputTokensDetails: { cached_tokens: 4 },
       outputTokensDetails: { reasoning_tokens: 6 },
     });
+  });
+
+  it('keeps the tool name when a provider repeats it on later tool call deltas', async () => {
+    const executed: Array<{ location: string }> = [];
+    const weatherTool = tool({
+      name: 'get_weather',
+      description: 'Returns the weather for a location.',
+      parameters: z.object({ location: z.string() }),
+      async execute({ location }: { location: string }) {
+        executed.push({ location });
+        return `sunny in ${location}`;
+      },
+    });
+
+    const toolCallStream = {
+      async *[Symbol.asyncIterator]() {
+        yield makeChunk({
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call-1',
+              function: { name: 'get_weather', arguments: '{"location":' },
+            },
+          ],
+        });
+        yield makeChunk({
+          tool_calls: [
+            {
+              index: 0,
+              function: { name: 'get_weather', arguments: '"Tokyo"}' },
+            },
+          ],
+        });
+      },
+    };
+    const textStream = {
+      async *[Symbol.asyncIterator]() {
+        yield makeChunk({ content: 'done' });
+      },
+    };
+
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce(toolCallStream)
+      .mockResolvedValueOnce(textStream);
+    const model = new OpenAIChatCompletionsModel(
+      { chat: { completions: { create } }, baseURL: 'https://example' } as any,
+      'gpt-stream',
+    );
+    const agent = new Agent({
+      name: 'Weather agent',
+      model,
+      tools: [weatherTool],
+    });
+
+    const result = await new Runner().run(agent, 'weather in Tokyo?', {
+      stream: true,
+    });
+    await result.completed;
+
+    const functionCall = result.newItems.find(
+      (item) => item.rawItem.type === 'function_call',
+    );
+    expect(functionCall?.rawItem).toMatchObject({
+      name: 'get_weather',
+      callId: 'call-1',
+      arguments: '{"location":"Tokyo"}',
+    });
+    expect(executed).toEqual([{ location: 'Tokyo' }]);
   });
 
   it('surfaces an empty content-filter terminal to the runner as a refusal', async () => {

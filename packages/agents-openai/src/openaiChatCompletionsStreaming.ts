@@ -326,7 +326,9 @@ export async function* convertChatCompletionsStreamToResponses(
         const tc_function = tc_delta.function;
         state.function_calls[tc_delta.index].arguments +=
           tc_function?.arguments || '';
-        state.function_calls[tc_delta.index].name += tc_function?.name || '';
+        if (tc_function?.name) {
+          state.function_calls[tc_delta.index].name = tc_function.name;
+        }
         if (tc_delta.id && !state.function_calls[tc_delta.index].callId) {
           state.function_calls[tc_delta.index].callId = tc_delta.id;
         }
