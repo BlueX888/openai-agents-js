@@ -420,6 +420,32 @@ describe('MCP tools cache invalidation', () => {
     });
   });
 
+  it('keeps another server cache when a colon-prefixed server name is invalidated', async () => {
+    const primary = new StubServer('colon-prefix', [toolNamed('search')]);
+    await getAllMcpTools({ mcpServers: [primary] });
+    await invalidateServerToolsCache('colon-prefix');
+
+    const suffixed = new StubServer('colon-prefix:extra', [toolNamed('fetch')]);
+    const listTools = vi.spyOn(suffixed, 'listTools');
+    expect(
+      (await getAllMcpTools({ mcpServers: [suffixed] })).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(['fetch']);
+    expect(listTools).toHaveBeenCalledTimes(1);
+
+    // The server shim re-invalidates its name on every reconnect, which hits
+    // the unregistered-name path after the first invalidation above.
+    await invalidateServerToolsCache('colon-prefix');
+
+    expect(
+      (await getAllMcpTools({ mcpServers: [suffixed] })).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(['fetch']);
+    expect(listTools).toHaveBeenCalledTimes(1);
+  });
+
   it('does not cache a callable filter result that crosses invalidation', async () => {
     let markFilterStarted!: () => void;
     let resumeFilter!: () => void;
