@@ -992,6 +992,71 @@ describe('OpenAIRealtimeWebSocket', () => {
     expect(sendSpy).not.toHaveBeenCalled();
   });
 
+  it('sends response.cancel when interrupting a response before any audio', async () => {
+    const ws = new OpenAIRealtimeWebSocket();
+    const p = ws.connect({ apiKey: 'ek', model: 'm' });
+    await vi.runAllTimersAsync();
+    await p;
+
+    lastFakeSocket!.emit('message', {
+      data: JSON.stringify({
+        type: 'response.created',
+        event_id: 'r1',
+        response: {},
+      }),
+    });
+
+    lastFakeSocket!.sent.length = 0;
+    ws.interrupt();
+
+    expect(sentPayloads().map((payload: any) => payload.type)).toEqual([
+      'response.cancel',
+    ]);
+  });
+
+  it('sends response.cancel when interrupting after audio done while the response is ongoing', async () => {
+    const ws = new OpenAIRealtimeWebSocket();
+    const p = ws.connect({ apiKey: 'ek', model: 'm' });
+    await vi.runAllTimersAsync();
+    await p;
+
+    lastFakeSocket!.emit('message', {
+      data: JSON.stringify({
+        type: 'response.created',
+        event_id: 'r1',
+        response: {},
+      }),
+    });
+    lastFakeSocket!.emit('message', {
+      data: JSON.stringify({
+        type: 'response.output_audio.delta',
+        event_id: 'a1',
+        item_id: 'item-1',
+        content_index: 0,
+        delta: 'AA==',
+        output_index: 0,
+        response_id: 'resp-1',
+      }),
+    });
+    lastFakeSocket!.emit('message', {
+      data: JSON.stringify({
+        type: 'response.output_audio.done',
+        event_id: 'a2',
+        item_id: 'item-1',
+        content_index: 0,
+        output_index: 0,
+        response_id: 'resp-1',
+      }),
+    });
+
+    lastFakeSocket!.sent.length = 0;
+    ws.interrupt();
+
+    expect(sentPayloads().map((payload: any) => payload.type)).toEqual([
+      'response.cancel',
+    ]);
+  });
+
   it('defers follow-up response.create until response.done after interrupt', async () => {
     const ws = new OpenAIRealtimeWebSocket();
     const p = ws.connect({ apiKey: 'ek', model: 'm' });

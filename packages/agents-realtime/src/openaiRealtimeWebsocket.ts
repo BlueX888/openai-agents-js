@@ -741,6 +741,12 @@ export class OpenAIRealtimeWebSocket
    */
   interrupt(cancelOngoingResponse: boolean = true) {
     if (!this.#currentItemId || typeof this._firstAudioTimestamp !== 'number') {
+      // No audio is being played, but the response may still be in progress,
+      // e.g. before the first audio delta or after the audio of the response
+      // has finished, so cancel it instead of letting it run to completion.
+      if (cancelOngoingResponse) {
+        this._cancelResponse();
+      }
       return;
     }
 
